@@ -66,9 +66,7 @@
         let bgX2;
         const bgScrollSpeed = 1; // Base scroll speed
 
-        // Image assets
-        // IMPORTANT: These are now placeholder images from placehold.co to ensure they load.
-        // If you want to use your local 'images/' folder, you MUST run this file from a web server.
+        // Image assets (using placeholders for reliability)
         let burgerImg, pizzaImg, vegImg, carrotImg;
 
         // Colors
@@ -333,9 +331,7 @@
                 this.baseWidth = width;
                 this.baseHeight = height;
                 this.elevation = elevation;
-                this.dynamicElevation = elevation;
-                this.pressed = false;
-
+                this.dynamicElevation = elevation; // Used for visual press effect
                 this.topColor = 'rgb(70, 95, 119)';
                 this.bottomColor = 'rgb(53, 75, 94)';
                 this.hoverColor = 'rgb(100, 130, 160)';
@@ -343,81 +339,88 @@
             }
 
             /**
-             * Draws the button on the canvas.
-             * @param {CanvasRenderingContext2D} ctx - The canvas rendering context.
-             * @returns {boolean} True if the button was clicked on this frame, false otherwise.
+             * Gets the current scaled bounding rectangle of the button.
+             * @returns {object} An object with x, y, width, and height properties.
              */
-            draw(ctx) {
-                const mouseX = lastMouseX; // Use last known mouse/touch position
-                const mouseY = lastMouseY;
-
-                // Scale button dimensions and position relative to BASE_GAME_WIDTH/HEIGHT
+            getRect() {
                 const scaledX = scaleValue(this.baseX, 'width');
                 const scaledY = scaleValue(this.baseY, 'height');
                 const scaledWidth = scaleValue(this.baseWidth, 'width');
                 const scaledHeight = scaleValue(this.baseHeight, 'height');
                 const scaledElevation = scaleValue(this.elevation, 'height');
-                const scaledDynamicElevation = scaleValue(this.dynamicElevation, 'height');
 
-                const topRect = {
+                // The top rectangle's Y position depends on the dynamic elevation
+                return {
                     x: scaledX,
-                    y: scaledY + scaledDynamicElevation - scaledElevation,
+                    y: scaledY + scaleValue(this.dynamicElevation, 'height') - scaledElevation,
                     width: scaledWidth,
                     height: scaledHeight
                 };
-                const bottomRect = {
-                    x: scaledX,
-                    y: scaledY + scaledDynamicElevation,
-                    width: scaledWidth,
-                    height: scaledHeight + scaledElevation
-                };
+            }
 
-                let clicked = false;
-                const isHovered = mouseX >= topRect.x && mouseX <= topRect.x + topRect.width &&
-                                  mouseY >= topRect.y && mouseY <= topRect.y + topRect.height;
+            /**
+             * Draws the button on the canvas.
+             * This method only handles drawing and visual state updates (hover/pressed).
+             * Actual click detection is handled in global event listeners.
+             * @param {CanvasRenderingContext2D} ctx - The canvas rendering context.
+             */
+            draw(ctx) {
+                const mouseX = lastMouseX;
+                const mouseY = lastMouseY;
 
-                if (isHovered && isMouseDown) {
+                const currentRect = this.getRect(); // Get the current scaled rectangle for drawing
+
+                // Check if the pointer is currently over the button
+                const isCurrentlyHovered = mouseX >= currentRect.x && mouseX <= currentRect.x + currentRect.width &&
+                                           mouseY >= currentRect.y && mouseY <= currentRect.y + currentRect.height;
+
+                // Update dynamic elevation and color based on interaction
+                if (isCurrentlyHovered && isMouseDown) {
+                    this.dynamicElevation = 0; // Button appears "pressed down"
                     this.topColor = this.pressedColor;
-                    this.dynamicElevation = 0;
-                    this.pressed = true;
+                } else if (isCurrentlyHovered) {
+                    this.dynamicElevation = this.elevation; // Reset to normal elevation if not pressed but hovered
+                    this.topColor = this.hoverColor;
                 } else {
-                    this.dynamicElevation = this.elevation;
-                    if (isHovered) {
-                        this.topColor = this.hoverColor;
-                        if (this.pressed && !isMouseDown) { // Button was pressed and now released
-                            clicked = true;
-                            this.pressed = false;
-                        }
-                    } else {
-                        this.topColor = 'rgb(70, 95, 119)';
-                        this.pressed = false;
-                    }
+                    this.dynamicElevation = this.elevation; // Default elevation
+                    this.topColor = 'rgb(70, 95, 119)'; // Default color
                 }
 
                 // Draw bottom layer (shadow/depth)
                 ctx.fillStyle = this.bottomColor;
                 ctx.beginPath();
-                ctx.roundRect(bottomRect.x, bottomRect.y, bottomRect.width, bottomRect.height, scaleValue(12, 'width'));
+                // Bottom rectangle's Y is relative to its base position + full elevation
+                ctx.roundRect(currentRect.x, currentRect.y + scaleValue(this.elevation, 'height'), currentRect.width, currentRect.height + scaleValue(this.elevation, 'height'), scaleValue(12, 'width'));
                 ctx.fill();
 
                 // Draw top layer
                 ctx.fillStyle = this.topColor;
                 ctx.beginPath();
-                ctx.roundRect(topRect.x, topRect.y, topRect.width, topRect.height, scaleValue(12, 'width'));
+                ctx.roundRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height, scaleValue(12, 'width'));
                 ctx.fill();
 
                 // Draw text
                 ctx.fillStyle = BLACK;
-                ctx.font = `${scaleValue(28, 'height')}px Inter`; // Scale font size
+                ctx.font = `${scaleValue(28, 'height')}px Inter`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(this.text, topRect.x + topRect.width / 2, topRect.y + topRect.height / 2);
-
-                return clicked;
+                ctx.fillText(this.text, currentRect.x + currentRect.width / 2, currentRect.y + currentRect.height / 2);
             }
         }
 
         // --- Game Logic Functions ---
+
+        /**
+         * Helper function to check if a point is inside a rectangle.
+         * @param {number} px - Point X coordinate.
+         * @param {number} py - Point Y coordinate.
+         * @param {object} rect - Rectangle object with x, y, width, height.
+         * @returns {boolean} True if the point is inside the rectangle, false otherwise.
+         */
+        function isPointInRect(px, py, rect) {
+            return px >= rect.x && px <= rect.x + rect.width &&
+                   py >= rect.y && py <= rect.y + rect.height;
+        }
 
         /**
          * Generates a new food item at a random position at the top of the screen.
@@ -498,18 +501,14 @@
 
         // Mouse/Touch state for button interactions
         let isMouseDown = false;
-        let lastMouseX = 0;
-        let lastMouseY = 0;
+        let lastMouseX = 0; // Last recorded X position relative to canvas
+        let lastMouseY = 0; // Last recorded Y position relative to canvas
 
         /**
          * The main game loop, called repeatedly using requestAnimationFrame.
          * @param {DOMHighResTimeStamp} currentTime - The current time provided by requestAnimationFrame.
          */
         function animate(currentTime) {
-            // Calculate delta time if needed for frame-rate independent movement (optional for this game)
-            // const deltaTime = currentTime - lastFrameTime;
-            // lastFrameTime = currentTime;
-
             // Clear the canvas
             ctx.clearRect(0, 0, currentWidth, currentHeight);
 
@@ -565,8 +564,7 @@
                         let hit = false;
                         for (const pos of slicePositions) {
                             // Simple point-in-rectangle collision
-                            if (pos.x >= foodRect.x && pos.x <= foodRect.x + foodRect.width &&
-                                pos.y >= foodRect.y && pos.y <= foodRect.y + foodRect.height) {
+                            if (isPointInRect(pos.x, pos.y, foodRect)) {
                                 hit = true;
                                 break;
                             }
@@ -599,30 +597,9 @@
                 ctx.textBaseline = 'middle';
                 ctx.fillText("Game Over!", currentWidth / 2, currentHeight / 2 - scaleValue(60, 'height'));
 
-                // Draw buttons
-                // Positions for buttons are now based on scaled coordinates relative to the canvas center
-                if (restartButton.draw(ctx)) {
-                    // Restart game
-                    lifelines = 3;
-                    score = 0;
-                    foods.length = 0; // Clear foods array
-                    slicing = false;
-                    slicePositions.length = 0;
-                    bgX1 = 0;
-                    bgX2 = bgImage ? bgImage.width : currentWidth; // Reset bg position
-                    gameOver = false;
-                    foodSpawnInterval = setInterval(() => foods.push(generateFood()), 1000); // Restart spawning
-                }
-                if (quitButton.draw(ctx)) {
-                    // Quit game (simply stop animation loop for web)
-                    cancelAnimationFrame(animationFrameId);
-                    // Optionally, show a "Thanks for playing" message or redirect
-                    ctx.clearRect(0, 0, currentWidth, currentHeight);
-                    ctx.fillStyle = BLACK;
-                    ctx.font = `${scaleValue(40, 'height')}px Inter`;
-                    ctx.fillText("Thanks for playing!", currentWidth / 2, currentHeight / 2);
-                    return; // Stop further animation requests
-                }
+                // Draw buttons (they now handle their own visual state based on global mouse/touch)
+                restartButton.draw(ctx);
+                quitButton.draw(ctx);
             }
 
             animationFrameId = requestAnimationFrame(animate);
@@ -635,8 +612,9 @@
          */
         async function initGame() {
             // Create buttons based on BASE_GAME_WIDTH/HEIGHT coordinates, which will then be scaled by draw method
-            restartButton = new Button("Restart", BASE_GAME_WIDTH / 2 - 110, BASE_GAME_HEIGHT / 2, 100, 50);
-            quitButton = new Button("Quit", BASE_GAME_WIDTH / 2 + 10, BASE_GAME_HEIGHT / 2, 100, 50);
+            // Increased button size for better touch targets
+            restartButton = new Button("Restart", BASE_GAME_WIDTH / 2 - 120, BASE_GAME_HEIGHT / 2 - 30, 120, 60);
+            quitButton = new Button("Quit", BASE_GAME_WIDTH / 2 + 0, BASE_GAME_HEIGHT / 2 - 30, 120, 60);
 
             await loadAllImages(); // Load images first
 
@@ -657,52 +635,75 @@
 
         // Mouse events
         canvas.addEventListener('mousedown', (e) => {
-            if (gameOver) {
-                isMouseDown = true; // For button clicks on game over screen
-                lastMouseX = e.clientX;
-                lastMouseY = e.clientY;
-                return;
-            }
-            slicing = true;
-            // Get mouse position relative to the canvas element
+            isMouseDown = true; // Set global flag
             const rect = canvas.getBoundingClientRect();
             lastMouseX = e.clientX - rect.left;
             lastMouseY = e.clientY - rect.top;
-            slicePositions = [{ x: lastMouseX, y: lastMouseY }];
-            isMouseDown = true;
+
+            if (!gameOver) { // Only start slicing if game is not over
+                slicing = true;
+                slicePositions = [{ x: lastMouseX, y: lastMouseY }];
+            }
         });
 
         canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            lastMouseX = e.clientX - rect.left;
+            lastMouseY = e.clientY - rect.top;
+
             if (slicing && !gameOver) {
-                const rect = canvas.getBoundingClientRect();
-                lastMouseX = e.clientX - rect.left;
-                lastMouseY = e.clientY - rect.top;
                 slicePositions.push({ x: lastMouseX, y: lastMouseY });
             }
         });
 
-        canvas.addEventListener('mouseup', () => {
+        canvas.addEventListener('mouseup', (e) => {
+            isMouseDown = false; // Reset global flag
             slicing = false;
-            slicePositions = [];
-            isMouseDown = false;
+            slicePositions = []; // Clear slice path
+
+            // Handle button clicks only when game is over
+            if (gameOver) {
+                const rect = canvas.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickY = e.clientY - rect.top;
+
+                if (isPointInRect(clickX, clickY, restartButton.getRect())) {
+                    // Restart game logic
+                    lifelines = 3;
+                    score = 0;
+                    foods.length = 0;
+                    slicing = false;
+                    slicePositions.length = 0;
+                    bgX1 = 0;
+                    bgX2 = bgImage ? bgImage.width : currentWidth;
+                    gameOver = false;
+                    foodSpawnInterval = setInterval(() => foods.push(generateFood()), 1000);
+                } else if (isPointInRect(clickX, clickY, quitButton.getRect())) {
+                    // Quit game logic
+                    cancelAnimationFrame(animationFrameId);
+                    ctx.clearRect(0, 0, currentWidth, currentHeight);
+                    ctx.fillStyle = BLACK;
+                    ctx.font = `${scaleValue(40, 'height')}px Inter`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText("Thanks for playing!", currentWidth / 2, currentHeight / 2);
+                    // Prevent further animation requests or game logic
+                    return;
+                }
+            }
         });
 
         // Touch events
         canvas.addEventListener('touchstart', (e) => {
-            if (gameOver) {
-                isMouseDown = true; // For button clicks on game over screen
-                const rect = canvas.getBoundingClientRect();
-                lastMouseX = e.touches[0].clientX - rect.left;
-                lastMouseY = e.touches[0].clientY - rect.top;
-                return;
-            }
-            slicing = true;
-            const touch = e.touches[0];
+            isMouseDown = true; // Set global flag
             const rect = canvas.getBoundingClientRect();
-            lastMouseX = touch.clientX - rect.left;
-            lastMouseY = touch.clientY - rect.top;
-            slicePositions = [{ x: lastMouseX, y: lastMouseY }];
-            isMouseDown = true;
+            lastMouseX = e.touches[0].clientX - rect.left;
+            lastMouseY = e.touches[0].clientY - rect.top;
+
+            if (!gameOver) { // Only start slicing if game is not over
+                slicing = true;
+                slicePositions = [{ x: lastMouseX, y: lastMouseY }];
+            }
             e.preventDefault(); // Prevent scrolling/zooming
         }, { passive: false });
 
@@ -711,16 +712,48 @@
             const rect = canvas.getBoundingClientRect();
             lastMouseX = touch.clientX - rect.left;
             lastMouseY = touch.clientY - rect.top;
+
             if (slicing && !gameOver) {
                 slicePositions.push({ x: lastMouseX, y: lastMouseY });
             }
             e.preventDefault(); // Prevent scrolling/zooming
         }, { passive: false });
 
-        canvas.addEventListener('touchend', () => {
+        canvas.addEventListener('touchend', (e) => {
+            isMouseDown = false; // Reset global flag
             slicing = false;
-            slicePositions = [];
-            isMouseDown = false;
+            slicePositions = []; // Clear slice path
+
+            // Handle button clicks only when game is over
+            if (gameOver) {
+                // Use the last recorded touch position for button click check
+                const touchX = lastMouseX; // lastMouseX/Y are already relative to canvas
+                const touchY = lastMouseY;
+
+                if (isPointInRect(touchX, touchY, restartButton.getRect())) {
+                    // Restart game logic
+                    lifelines = 3;
+                    score = 0;
+                    foods.length = 0;
+                    slicing = false;
+                    slicePositions.length = 0;
+                    bgX1 = 0;
+                    bgX2 = bgImage ? bgImage.width : currentWidth;
+                    gameOver = false;
+                    foodSpawnInterval = setInterval(() => foods.push(generateFood()), 1000);
+                } else if (isPointInRect(touchX, touchY, quitButton.getRect())) {
+                    // Quit game logic
+                    cancelAnimationFrame(animationFrameId);
+                    ctx.clearRect(0, 0, currentWidth, currentHeight);
+                    ctx.fillStyle = BLACK;
+                    ctx.font = `${scaleValue(40, 'height')}px Inter`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText("Thanks for playing!", currentWidth / 2, currentHeight / 2);
+                    // Prevent further animation requests or game logic
+                    return;
+                }
+            }
         });
 
         // Initialize the game when the window loads
