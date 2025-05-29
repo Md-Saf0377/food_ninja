@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Food Ninja</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -19,13 +19,17 @@
             -moz-user-select: none; /* Disable text selection on Firefox */
             -ms-user-select: none; /* Disable text selection on IE/Edge */
             user-select: none; /* Standard property to disable text selection */
-            touch-action: none; /* Prevent default touch actions like scrolling */
+            touch-action: none; /* Prevent default touch actions like scrolling, useful for games */
         }
         canvas {
             display: block;
             background-color: #eee; /* Fallback if background image doesn't load */
             border-radius: 12px; /* Rounded corners for the canvas */
             box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+            /* Added for better centering and to make sure canvas respects flexbox */
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain; /* Ensures the canvas scales down preserving aspect ratio */
         }
     </style>
 </head>
@@ -40,10 +44,12 @@
         // Base game dimensions for scaling (from original Python code)
         const BASE_GAME_WIDTH = 800;
         const BASE_GAME_HEIGHT = 600;
+        const GAME_ASPECT_RATIO = BASE_GAME_WIDTH / BASE_GAME_HEIGHT; // 4:3
 
-        // Current canvas dimensions, updated on resize
-        let currentWidth = window.innerWidth;
-        let currentHeight = window.innerHeight;
+        // currentWidth and currentHeight will now represent the ACTUAL dimensions of the canvas,
+        // which will maintain the aspect ratio.
+        let currentWidth = 0; // Initialize to 0, will be set by resizeCanvas
+        let currentHeight = 0; // Initialize to 0, will be set by resizeCanvas
 
         // Game state variables
         let lifelines = 3;
@@ -60,7 +66,9 @@
         let bgX2;
         const bgScrollSpeed = 1; // Base scroll speed
 
-        // Image assets (placeholders for now)
+        // Image assets
+        // IMPORTANT: These are now placeholder images from placehold.co to ensure they load.
+        // If you want to use your local 'images/' folder, you MUST run this file from a web server.
         let burgerImg, pizzaImg, vegImg, carrotImg;
 
         // Colors
@@ -78,6 +86,7 @@
          * @returns {number} The scaled value.
          */
         function scaleValue(value, dimension) {
+            // Use currentWidth and currentHeight which are the *actual* canvas dimensions
             if (dimension === 'width') {
                 return value * (currentWidth / BASE_GAME_WIDTH);
             } else if (dimension === 'height') {
@@ -130,13 +139,12 @@
          */
         async function loadAllImages() {
             try {
-                // Using placeholder images from placehold.co
                 const [rawBurger, rawPizza, rawVeg, rawCarrot, rawBg] = await Promise.all([
-                    loadImage("images/g1.jpg"),
-                    loadImage("images/g2.jpg"),
-                    loadImage("images/g3.jpg"),
-                    loadImage("images/g4.jpg"),
-                    loadImage("images/background.jpg")
+                    loadImage("images/g1.jpg"), // Placeholder URL
+                    loadImage("images/g2.jpg"),  // Placeholder URL
+                    loadImage("images/g3.jpg"),    // Placeholder URL
+                    loadImage("images/g4.jpg"), // Placeholder URL
+                    loadImage("images/background.jpg") // Placeholder URL
                 ]);
 
                 const foodBaseSize = 80; // Base size for circular food images
@@ -151,7 +159,7 @@
                 console.log("All images loaded successfully.");
             } catch (error) {
                 console.error("Error loading images:", error);
-                // Optionally display an error message on canvas
+                // Display an error message on canvas if images fail to load
                 ctx.fillStyle = BLACK;
                 ctx.font = '24px Arial';
                 ctx.fillText("Error loading images. Please refresh.", 50, 50);
@@ -159,28 +167,43 @@
         }
 
         /**
-         * Resizes the canvas to fill the window and recalculates background dimensions.
+         * Resizes the canvas to fit the window while maintaining the game's aspect ratio.
          */
         function resizeCanvas() {
-            currentWidth = window.innerWidth;
-            currentHeight = window.innerHeight;
-            canvas.width = currentWidth;
-            canvas.height = currentHeight;
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
 
-            // Recalculate background image scaling
+            let newCanvasWidth = windowWidth;
+            let newCanvasHeight = windowWidth / GAME_ASPECT_RATIO;
+
+            // If the calculated height exceeds the window height, scale by height instead
+            if (newCanvasHeight > windowHeight) {
+                newCanvasHeight = windowHeight;
+                newCanvasWidth = windowHeight * GAME_ASPECT_RATIO;
+            }
+
+            // Set the canvas dimensions to the calculated values
+            canvas.width = newCanvasWidth;
+            canvas.height = newCanvasHeight;
+
+            // Update global currentWidth and currentHeight to reflect the ACTUAL canvas dimensions
+            currentWidth = newCanvasWidth;
+            currentHeight = newCanvasHeight;
+
+            // Recalculate background image scaling based on the new canvas dimensions
             if (bgImageRaw) {
-                // Scale background to fit height, then ensure it covers full width
-                bgScaleFactor = currentHeight / bgImageRaw.height;
+                // Scale background to fit the new canvas height
+                const bgScaleFactor = currentHeight / bgImageRaw.height;
                 const tempBgWidth = Math.floor(bgImageRaw.width * bgScaleFactor);
-                
+
                 // Create a temporary canvas to draw the scaled background image
                 const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = Math.max(currentWidth, tempBgWidth);
+                tempCanvas.width = Math.max(currentWidth, tempBgWidth); // Ensure background is wide enough
                 tempCanvas.height = currentHeight;
                 const tempCtx = tempCanvas.getContext('2d');
                 tempCtx.drawImage(bgImageRaw, 0, 0, tempCanvas.width, tempCanvas.height);
                 bgImage = tempCanvas; // Store the scaled background canvas
-                
+
                 // Update bgX2 based on the new scaled background width
                 bgX2 = bgX1 + bgImage.width;
             }
@@ -209,9 +232,16 @@
                 this.sliced = false;
                 this.image = image; // This is now a canvas element
 
-                // Store original image dimensions for proportional scaling
-                this.originalWidth = image.width;
-                this.originalHeight = image.height;
+                // Ensure image is defined before accessing properties
+                if (!image) {
+                    console.error("Food constructor received undefined image for kind:", kind);
+                    // Fallback to a default size if image is undefined, to prevent further errors
+                    this.originalWidth = 80;
+                    this.originalHeight = 80;
+                } else {
+                    this.originalWidth = image.width;
+                    this.originalHeight = image.height;
+                }
             }
 
             /**
@@ -228,19 +258,22 @@
              * @param {CanvasRenderingContext2D} ctx - The canvas rendering context.
              */
             draw(ctx) {
+                if (!this.image) return; // Don't draw if image is not loaded/defined
+
                 const minScale = 0.5;
                 const maxScale = 1.2;
                 // Scale based on food's Y position relative to canvas height
-                const scaleFactor = minScale + (maxScale - minScale) * (this.y / currentHeight);
+                const scaleFactor = minScale + (maxScale - minScale) * (this.y / BASE_GAME_HEIGHT); // Use BASE_GAME_HEIGHT for consistent scaling logic regardless of canvas size
 
-                // Calculate scaled dimensions, ensuring minimum size
-                const scaledWidth = Math.max(1, Math.floor(scaleValue(this.originalWidth, 'width') * scaleFactor));
-                const scaledHeight = Math.max(1, Math.floor(scaleValue(this.originalHeight, 'height') * scaleFactor));
+                // Calculate scaled dimensions based on BASE_GAME_WIDTH/HEIGHT
+                const scaledWidth = Math.max(1, Math.floor(scaleValue(this.originalWidth * scaleFactor, 'width')));
+                const scaledHeight = Math.max(1, Math.floor(scaleValue(this.originalHeight * scaleFactor, 'height')));
+
 
                 // Calculate alpha for fading in/out
                 const minAlpha = 100;
                 const maxAlpha = 255;
-                const alpha = minAlpha + Math.floor((maxAlpha - minAlpha) * (this.y / currentHeight));
+                const alpha = minAlpha + Math.floor((maxAlpha - minAlpha) * (this.y / BASE_GAME_HEIGHT)); // Use BASE_GAME_HEIGHT
 
                 ctx.save(); // Save current context state
                 ctx.globalAlpha = alpha / 255; // Set global alpha
@@ -263,12 +296,14 @@
              * @returns {object} An object with x, y, width, and height properties.
              */
             getRect() {
+                if (!this.image) return { x: 0, y: 0, width: 0, height: 0 }; // Return empty rect if image is not loaded
+
                 const minScale = 0.5;
                 const maxScale = 1.2;
-                const scaleFactor = minScale + (maxScale - minScale) * (this.y / currentHeight);
+                const scaleFactor = minScale + (maxScale - minScale) * (this.y / BASE_GAME_HEIGHT);
 
-                const scaledWidth = Math.max(1, Math.floor(scaleValue(this.originalWidth, 'width') * scaleFactor));
-                const scaledHeight = Math.max(1, Math.floor(scaleValue(this.originalHeight, 'height') * scaleFactor));
+                const scaledWidth = Math.max(1, Math.floor(scaleValue(this.originalWidth * scaleFactor, 'width')));
+                const scaledHeight = Math.max(1, Math.floor(scaleValue(this.originalHeight * scaleFactor, 'height')));
 
                 return {
                     x: scaleValue(this.x, 'width') - scaledWidth / 2,
@@ -316,7 +351,7 @@
                 const mouseX = lastMouseX; // Use last known mouse/touch position
                 const mouseY = lastMouseY;
 
-                // Scale button dimensions and position
+                // Scale button dimensions and position relative to BASE_GAME_WIDTH/HEIGHT
                 const scaledX = scaleValue(this.baseX, 'width');
                 const scaledY = scaleValue(this.baseY, 'height');
                 const scaledWidth = scaleValue(this.baseWidth, 'width');
@@ -386,6 +421,7 @@
 
         /**
          * Generates a new food item at a random position at the top of the screen.
+         * The 'x' coordinate is based on the BASE_GAME_WIDTH.
          * @returns {Food} A new Food object.
          */
         function generateFood() {
@@ -405,7 +441,8 @@
                 kind = 'carrot';
             }
 
-            const x = Math.random() * (BASE_GAME_WIDTH - 100) + 50; // Random x within bounds
+            // X is based on BASE_GAME_WIDTH for consistency, then scaled by scaleValue
+            const x = Math.random() * (BASE_GAME_WIDTH - 100) + 50; // Random x within bounds of BASE_GAME_WIDTH
             const y = -50; // Start off-screen at the top
 
             let image;
@@ -427,6 +464,7 @@
             ctx.fillStyle = RED;
             for (let i = 0; i < count; i++) {
                 ctx.beginPath();
+                // Positions and sizes are scaled based on BASE_GAME_WIDTH/HEIGHT
                 ctx.roundRect(
                     scaleValue(20 + i * 40, 'width'),
                     scaleValue(20, 'height'),
@@ -448,6 +486,7 @@
             ctx.font = `${scaleValue(36, 'height')}px Inter`; // Scale font size
             ctx.textAlign = 'right';
             ctx.textBaseline = 'top';
+            // Position score relative to the actual currentWidth
             ctx.fillText(`Score: ${score}`, currentWidth - scaleValue(20, 'width'), scaleValue(20, 'height'));
         }
 
@@ -499,8 +538,7 @@
                     food.draw(ctx);
 
                     // Remove food if it goes off-screen
-                    if (food.y > currentHeight + scaleValue(50, 'height')) {
-                        // Removed the lifeline reduction for missed good food items here
+                    if (food.y > BASE_GAME_HEIGHT + 50) { // Check against BASE_GAME_HEIGHT for consistency
                         foods.splice(i, 1);
                     }
                 }
@@ -562,6 +600,7 @@
                 ctx.fillText("Game Over!", currentWidth / 2, currentHeight / 2 - scaleValue(60, 'height'));
 
                 // Draw buttons
+                // Positions for buttons are now based on scaled coordinates relative to the canvas center
                 if (restartButton.draw(ctx)) {
                     // Restart game
                     lifelines = 3;
@@ -595,7 +634,7 @@
          * Initializes the game: loads images, sets up buttons, starts spawning, and begins the game loop.
          */
         async function initGame() {
-            // Create buttons after canvas dimensions are potentially set
+            // Create buttons based on BASE_GAME_WIDTH/HEIGHT coordinates, which will then be scaled by draw method
             restartButton = new Button("Restart", BASE_GAME_WIDTH / 2 - 110, BASE_GAME_HEIGHT / 2, 100, 50);
             quitButton = new Button("Quit", BASE_GAME_WIDTH / 2 + 10, BASE_GAME_HEIGHT / 2, 100, 50);
 
@@ -625,17 +664,20 @@
                 return;
             }
             slicing = true;
-            slicePositions = [{ x: e.clientX, y: e.clientY }];
+            // Get mouse position relative to the canvas element
+            const rect = canvas.getBoundingClientRect();
+            lastMouseX = e.clientX - rect.left;
+            lastMouseY = e.clientY - rect.top;
+            slicePositions = [{ x: lastMouseX, y: lastMouseY }];
             isMouseDown = true;
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
         });
 
         canvas.addEventListener('mousemove', (e) => {
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
             if (slicing && !gameOver) {
-                slicePositions.push({ x: e.clientX, y: e.clientY });
+                const rect = canvas.getBoundingClientRect();
+                lastMouseX = e.clientX - rect.left;
+                lastMouseY = e.clientY - rect.top;
+                slicePositions.push({ x: lastMouseX, y: lastMouseY });
             }
         });
 
@@ -649,25 +691,28 @@
         canvas.addEventListener('touchstart', (e) => {
             if (gameOver) {
                 isMouseDown = true; // For button clicks on game over screen
-                lastMouseX = e.touches[0].clientX;
-                lastMouseY = e.touches[0].clientY;
+                const rect = canvas.getBoundingClientRect();
+                lastMouseX = e.touches[0].clientX - rect.left;
+                lastMouseY = e.touches[0].clientY - rect.top;
                 return;
             }
             slicing = true;
             const touch = e.touches[0];
-            slicePositions = [{ x: touch.clientX, y: touch.clientY }];
+            const rect = canvas.getBoundingClientRect();
+            lastMouseX = touch.clientX - rect.left;
+            lastMouseY = touch.clientY - rect.top;
+            slicePositions = [{ x: lastMouseX, y: lastMouseY }];
             isMouseDown = true;
-            lastMouseX = touch.clientX;
-            lastMouseY = touch.clientY;
             e.preventDefault(); // Prevent scrolling/zooming
         }, { passive: false });
 
         canvas.addEventListener('touchmove', (e) => {
             const touch = e.touches[0];
-            lastMouseX = touch.clientX;
-            lastMouseY = touch.clientY;
+            const rect = canvas.getBoundingClientRect();
+            lastMouseX = touch.clientX - rect.left;
+            lastMouseY = touch.clientY - rect.top;
             if (slicing && !gameOver) {
-                slicePositions.push({ x: touch.clientX, y: touch.clientY });
+                slicePositions.push({ x: lastMouseX, y: lastMouseY });
             }
             e.preventDefault(); // Prevent scrolling/zooming
         }, { passive: false });
